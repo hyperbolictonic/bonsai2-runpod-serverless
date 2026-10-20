@@ -6,6 +6,8 @@
 
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
@@ -36,10 +38,17 @@ ARG LLAMA_PRISM_RELEASE="https://github.com/PrismML-Eng/llama.cpp/releases/downl
 
 RUN mkdir -p /opt/llama.cpp && \
     echo "[Build] Downloading pre-compiled PrismML CUDA 12.8 binaries..." && \
-    curl -sL "$LLAMA_PRISM_RELEASE" | tar -xz -C /opt/llama.cpp && \
+    curl --fail --show-error --location --retry 3 --retry-all-errors --connect-timeout 20 \
+        --output /tmp/llama-prism.tar.gz "$LLAMA_PRISM_RELEASE" && \
+    tar -xzf /tmp/llama-prism.tar.gz -C /opt/llama.cpp && \
     find /opt/llama.cpp -name "llama-server" -exec cp {} /usr/local/bin/llama-server \; && \
     find /opt/llama.cpp -name "llama-cli" -exec cp {} /usr/local/bin/llama-cli \; && \
+    test -f /usr/local/bin/llama-server && \
+    test -f /usr/local/bin/llama-cli && \
     chmod +x /usr/local/bin/llama-server /usr/local/bin/llama-cli && \
+    test -x /usr/local/bin/llama-server && \
+    test -x /usr/local/bin/llama-cli && \
+    rm -f /tmp/llama-prism.tar.gz && \
     echo "/opt/llama.cpp" >> /etc/ld.so.conf.d/llama.conf && \
     find /opt/llama.cpp -type d -name "lib*" -exec echo {} >> /etc/ld.so.conf.d/llama.conf \; && \
     find /opt/llama.cpp -type d -name "bin*" -exec echo {} >> /etc/ld.so.conf.d/llama.conf \; && \
