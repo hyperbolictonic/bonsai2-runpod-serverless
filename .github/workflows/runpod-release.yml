@@ -1,0 +1,25 @@
+name: Trigger RunPod GitHub Build
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-runpod-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release marker for RunPod
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          TAG="runpod-${SHORT_SHA:0:12}"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$COMMIT_SHA" \
+            --title "$TAG" \
+            --notes "Automatic RunPod rebuild trigger for ${COMMIT_SHA}."
