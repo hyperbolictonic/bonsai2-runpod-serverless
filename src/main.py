@@ -73,6 +73,7 @@ def handler(job):
     Standard RunPod Serverless queue handler function.
     Bridges RunPod OpenAI Gateway calls and raw jobs into llama-server.
     """
+    ensure_llama_server()
     job_input = job.get("input", {}) if isinstance(job, dict) else {}
     if not job_input:
         return {"error": "Empty input payload provided."}
@@ -138,6 +139,5 @@ def handler(job):
     except Exception as exc:
         return {"error": f"Failed to forward request to llama-server at {target_url}: {str(exc)}"}
 
-ensure_llama_server()
 print("[RunPod Handler] Initializing RunPod Serverless queue worker loop...")
 runpod.serverless.start({"handler": handler})
