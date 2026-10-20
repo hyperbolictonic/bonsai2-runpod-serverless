@@ -79,13 +79,43 @@ You can customize runtime behavior by adding these environment variables in your
 
 ---
 
-### **Connecting to Framed Video Bot Framework**
+### **OpenAI API Compatibility & Usage**
 
-In Framed Studio -> **Model Config**:
-* **Provider**: `openai-compatible`
-* **Base URL**: `https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1`
-* **API Key**: `rpa_...`
-* **Ingest Concurrency**: `6` (for 48GB cards) or `4` (for RTX 5090)
-* **Context Tier**: `256k`
-* **Text Walk Window Size**: `7`
-* **Enable Thinking**: `OFF` / **Reasoning Effort**: `none`
+The container natively exposes a full OpenAI-compatible API (`/v1/chat/completions` and `/v1/models`). You can connect with any OpenAI client, framework, or HTTP caller.
+
+#### **Python (OpenAI SDK)**
+```python
+from openai import OpenAI
+
+# RunPod Serverless or Pod endpoint
+client = OpenAI(
+    base_url="https://api.runpod.ai/v2/<YOUR_ENDPOINT_ID>/openai/v1",  # or http://<POD_IP>:8000/v1
+    api_key="your-runpod-api-key"
+)
+
+response = client.chat.completions.create(
+    model="Ternary-Bonsai-2-27B-PQ2_0.gguf",
+    messages=[
+        {"role": "user", "content": "Describe this image or video sequence."}
+    ],
+    temperature=0.0,
+    max_tokens=8192
+)
+
+print(response.choices[0].message.content)
+```
+
+#### **cURL**
+```bash
+curl -X POST "https://api.runpod.ai/v2/<YOUR_ENDPOINT_ID>/openai/v1/chat/completions" \
+  -H "Authorization: Bearer <YOUR_RUNPOD_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+    "messages": [
+      {"role": "user", "content": "Hello Bonsai!"}
+    ],
+    "temperature": 0.0,
+    "max_tokens": 1024
+  }'
+```
