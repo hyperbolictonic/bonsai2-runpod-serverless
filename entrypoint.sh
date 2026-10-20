@@ -75,41 +75,47 @@ echo "[Model] Loaded GGUF: $MODEL_PATH"
 [ -f "$MMPROJ_PATH" ] && echo "[Model] Loaded Vision Projector: $MMPROJ_PATH"
 
 # 4. Construct llama-server Execution Command
-CMD="/usr/local/bin/llama-server \
-    -m \"$MODEL_PATH\" \
-    --host \"$HOST\" \
-    --port \"$PORT\" \
-    -ngl \"$N_GPU_LAYERS\" \
-    -c \"$CTX_SIZE\" \
-    -np \"$PARALLEL_SLOTS\" \
-    -b \"$BATCH_SIZE\" \
-    -ub \"$UBATCH_SIZE\" \
-    -ctk \"$KV_CACHE_TYPE_K\" \
-    -ctv \"$KV_CACHE_TYPE_V\" \
-    -n -1 \
-    --cont-batching \
-    --metrics"
+# Keep this as an argument array. Building a shell command string and passing it
+# through `exec eval` breaks in HTTP/pod mode because eval is a shell builtin,
+# and it also makes paths containing spaces unsafe.
+LLAMA_CMD=(
+    /usr/local/bin/llama-server
+    -m "$MODEL_PATH"
+    --host "$HOST"
+    --port "$PORT"
+    -ngl "$N_GPU_LAYERS"
+    -c "$CTX_SIZE"
+    -np "$PARALLEL_SLOTS"
+    -b "$BATCH_SIZE"
+    -ub "$UBATCH_SIZE"
+    -ctk "$KV_CACHE_TYPE_K"
+    -ctv "$KV_CACHE_TYPE_V"
+    -n -1
+    --cont-batching
+    --metrics
+)
 
 if [ -f "$MMPROJ_PATH" ]; then
-    CMD="$CMD --mmproj \"$MMPROJ_PATH\""
+    LLAMA_CMD+=(--mmproj "$MMPROJ_PATH")
 fi
 
 if [ "$FLASH_ATTENTION" = "true" ]; then
-    CMD="$CMD -fa"
+    LLAMA_CMD+=(-fa)
 fi
 
 echo "[Execution] Starting llama-server with command:"
-echo "$CMD"
+printf '%q ' "${LLAMA_CMD[@]}"
+echo
 
 # 5. Check Execution Mode
 if [ "$RUNPOD_MODE" = "http" ] || [ "$RUNPOD_MODE" = "pod" ]; then
     echo "[Mode] Starting direct HTTP llama-server for Pod / API Gateway..."
-    exec eval "$CMD"
+    exec "${LLAMA_CMD[@]}"
 fi
 
 # Standard Serverless Queue Mode (Default):
 echo "[RunPod] Starting llama-server in background..."
-eval "$CMD" &
+"${LLAMA_CMD[@]}" &
 LLAMA_PID=$!
 
 echo "[RunPod] Waiting for llama-server readiness on port $PORT..."
