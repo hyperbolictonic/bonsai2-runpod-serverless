@@ -80,4 +80,4 @@ ENV MODEL_PATH="/workspace/models/Ternary-Bonsai-2-27B-PQ2_0.gguf" \
 
 EXPOSE 8000
 
-CMD ["python3", "-u", "/app/handler.py"]
+CMD python -u /handler.py

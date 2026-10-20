@@ -35,7 +35,6 @@ def ensure_llama_server():
         print("[RunPod Handler] llama-server backend is already running and ready.")
         return
 
-    # Check if entrypoint.sh exists to launch configured llama-server
     entrypoint_script = "/app/entrypoint.sh" if os.path.exists("/app/entrypoint.sh") else "./entrypoint.sh"
     if os.path.exists(entrypoint_script):
         print(f"[RunPod Handler] Spawning llama-server via {entrypoint_script} in background...")
@@ -49,15 +48,15 @@ def ensure_llama_server():
             "--host", os.environ.get("HOST", "0.0.0.0"),
             "--port", str(LOCAL_PORT),
             "-ngl", os.environ.get("N_GPU_LAYERS", "99"),
-            "-c", os.environ.get("CTX_SIZE", "131072"),
-            "-np", os.environ.get("PARALLEL_SLOTS", "4"),
+            "-c", os.environ.get("CTX_SIZE", "261120"),
+            "-np", os.environ.get("PARALLEL_SLOTS", "6"),
             "-fa"
         ]
         print(f"[RunPod Handler] Spawning direct llama-server: {' '.join(cmd)}")
         subprocess.Popen(cmd)
 
     print(f"[RunPod Handler] Waiting for llama-server readiness on port {LOCAL_PORT}...")
-    for _ in range(120):
+    for _ in range(180):
         if is_server_ready():
             print("[RunPod Handler] llama-server backend is healthy and ready!")
             return
@@ -105,7 +104,6 @@ def handler(job):
     except Exception as exc:
         return {"error": f"Failed to forward request to llama-server: {str(exc)}"}
 
-if __name__ == "__main__":
-    ensure_llama_server()
-    print("[RunPod Handler] Initializing RunPod Serverless queue worker loop...")
-    runpod.serverless.start({"handler": handler})
+ensure_llama_server()
+print("[RunPod Handler] Initializing RunPod Serverless queue worker loop...")
+runpod.serverless.start({"handler": handler})
