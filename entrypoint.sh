@@ -1,9 +1,14 @@
 #!/bin/bash
 set -e
 
+# ==============================================================================
+# RunPod Serverless & Pod Entrypoint for PrismML Bonsai 2 27B
+# Handler loop: runpod.serverless.start({"handler": handler})
+# ==============================================================================
+
 echo "=========================================================="
 echo " Starting PrismML Bonsai 2 27B Serverless / Pod Container"
-echo " Target GPUs: RTX 5090 | RTX 6000 Ada | L40S | A40"
+echo " Target GPUs: RTX 5090 | RTX 6000 Ada | L40S | A40 | A6000"
 echo "=========================================================="
 
 # 1. Inspect Hardware & Auto-Detect GPU VRAM
@@ -122,7 +127,7 @@ done
 
 echo "[RunPod] llama-server is healthy and ready for requests!"
 
-# If custom command was passed as arguments, execute that; otherwise launch default handler
+# Execute serverless handler (runpod.serverless.start)
 if [ $# -gt 0 ]; then
     echo "[RunPod] Executing container command: $@"
     exec "$@"
