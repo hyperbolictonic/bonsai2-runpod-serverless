@@ -26,6 +26,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Change this value when RunPod needs to be forced onto a fresh source/build
+# revision instead of reusing a previously cached repository or Docker layer.
+ARG BUILD_CACHE_BUSTER="v1.0.3"
+RUN echo "[Build] Cache buster: ${BUILD_CACHE_BUSTER}" > /app/.build-cache-buster
+
 # Download and install pre-compiled PrismML llama.cpp with CUDA 12.8 and Ternary Bonsai 2 support
 ARG LLAMA_PRISM_RELEASE="https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b10787-73bfe6c/llama-prism-b10787-73bfe6c-bin-linux-cuda-12.8-x64.tar.gz"
 
