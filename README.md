@@ -1,121 +1,82 @@
-# PrismML Bonsai 2 27B Serverless & Pod Docker Image
+# Bonsai 2 27B multimodal on Runpod Serverless
 
-A production-ready, multi-architecture CUDA 12.8 container for **PrismML Bonsai 2 27B** with native 2-bit ternary quantization (`PQ2_0`), multimodal vision (`mmproj`), and **up to 256k context**.
+Queue-based worker serving PrismML Bonsai 2 through the PrismML llama.cpp fork. The worker uses the PQ2_0 ternary language GGUF and downloads both separate vision projectors. BF16 (about 888 MiB) is selected by default; Q8_0 is retained as an alternative. llama-server loads only the selected projector, so the endpoint accepts text-only and image-containing chat messages.
 
----
+The build/runtime is adapted from the working [Hexadi Runpod worker](https://github.com/hexadi/bonsai2-runpod-serverless), with the optional vision projector added. The PrismML llama.cpp source is pinned to commit `73bfe6cc485554822f80c473a3c0c4f25e80f41b` for repeatable builds.
 
-### **Supported Hardware & Architectures**
+## Deploy
 
-Built with `CMAKE_CUDA_ARCHITECTURES="80;86;89;90;100;120"`:
-* **Blackwell**: NVIDIA GeForce RTX 5090 (`sm_100` / `sm_120`)
-* **Ada Lovelace**: NVIDIA RTX 6000 Ada, L40S, L40, RTX 4090 (`sm_89`)
-* **Hopper**: NVIDIA H100 (`sm_90`)
-* **Ampere**: NVIDIA A40, A100, RTX A6000, RTX 3090 (`sm_80` / `sm_86`)
+In Runpod Serverless, choose **Add your repo**, select this repository and `main`, and use the root `Dockerfile`. The image uses CUDA 12.8 and compiles native CUDA targets for Ampere `sm_80` and consumer Blackwell `sm_120`; the embedded forward-compatible PTX provides a fallback for intermediate architectures (including `sm_86/89/90`) and Blackwell `sm_100`. CUDA 12.8 is required for Blackwell. Flash Attention is explicitly enabled at server startup; actual compatibility still depends on the GPU/backend and the pinned PrismML llama.cpp revision, so verify on each target class before production.
 
----
+The model and both projector variants download at worker startup; they are not baked into the image. Allow at least 20 GB of worker/container disk for the model, both projectors, Hugging Face metadata/cache, and temporary working space. If you attach a Runpod network volume at `/runpod-volume`, the worker reuses `/runpod-volume/models/bonsai2` across worker replacements; otherwise files go under `/workspace/models` on the worker disk.
 
-### **Hardware Auto-Detection Profiles**
+PrismML publishes both the BF16 reference projector (931 MB decimal, about 888 MiB) and the smaller Q8_0 projector (629 MB). BF16 is the default active projector; set `MMPROJ_FILE=Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf` to use Q8_0 instead. Both files remain on disk. See the [model files and documentation](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf); PQ2_0 model weights are about 7.21 GB.
 
-The container automatically inspects available GPU VRAM at boot via `nvidia-smi` and tunes the context window, concurrency slots, and KV cache quantization:
+## Configuration
 
-| Detected GPU Class | VRAM Range | Context Window | Parallel Slots | KV Cache Type | Typical Cards |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **48GB+ Enterprise** | $\ge 40$ GB | **`261,120` (256k)** | **6** | `q8_0` | L40S, RTX 6000 Ada, A40, A100 |
-| **32GB High-Speed** | $28 - 39$ GB | **`131,072` (128k)** *(or 256k with q4)* | **4** | `q8_0` *(or q4_0)* | RTX 5090 |
-| **24GB Prosumer** | $< 28$ GB | **`65,536` (64k)** | **2** | `q4_0` | RTX 4090, RTX 3090 |
+| Variable | Default | Purpose |
+|---|---|---|
+| `MODEL_REPO` | `prism-ml/Ternary-Bonsai-2-27B-gguf` | Hugging Face repository |
+| `MODEL_FILE` | `Ternary-Bonsai-2-27B-PQ2_0.gguf` | Language model file |
+| `MMPROJ_FILE` | `Ternary-Bonsai-2-27B-mmproj-BF16.gguf` | Active projector; set to the Q8_0 filename to switch, or empty to disable image input |
+| `MMPROJ_ALTERNATE_FILE` | `Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf` | Second projector downloaded for easy switching |
+| `MODEL_DIR` | auto: volume if mounted, otherwise `/workspace/models` | Persistent model directory |
+| `HF_TOKEN` | unset | Optional Hugging Face token |
+| `CONTEXT_SIZE` | `32768` | Context tokens; raise only after checking GPU memory |
+| `GPU_LAYERS` | `99` | Layers to offload to GPU |
+| `BATCH_SIZE` | `512` | Logical batch size (`-b`) |
+| `UBATCH_SIZE` | `512` | Physical batch size (`-ub`) |
+| KV cache | `q4_0` for K and V | Quantized KV cache to reduce memory use |
+| Flash Attention | `on` | Enabled for supported GPU/build combinations |
+| `PARALLEL` | `1` | llama-server parallel slots |
+| `STARTUP_TIMEOUT` | `900` | Time allowed for downloads and model startup |
+| `REQUEST_TIMEOUT` | `1800` | Per-request timeout in seconds |
 
----
+## Text request
 
-### **Building and Pushing the Docker Image**
+Send to the endpoint's `/run` route:
 
-```bash
-cd docker/bonsai-runpod
-
-# Build with maximum CPU workers (defaults to all cores $(nproc) + NVCC multi-arch parallel threads)
-docker build -t your-dockerhub-username/bonsai2-serverless:latest .
-
-# Optional: Specify explicit worker count (e.g. 32 cores on a large build server)
-docker build --build-arg MAX_JOBS=32 -t your-dockerhub-username/bonsai2-serverless:latest .
-
-# Push to your registry
-docker push your-dockerhub-username/bonsai2-serverless:latest
-```
-
----
-
-### **Deploying on RunPod**
-
-#### **Option A: RunPod Serverless (Recommended)**
-1. In the **RunPod Console**, go to **Serverless** -> **New Endpoint**.
-2. **Container Image**: `your-dockerhub-username/bonsai2-serverless:latest`.
-3. **GPU Types**: Select `L40S 48GB`, `RTX 6000 Ada 48GB`, `A40 48GB`, or `RTX 5090`.
-4. **Container Disk**: `35 GB` (or mount a Network Volume with your model at `/workspace/models`).
-5. **Max Concurrency per Worker**: `6` (for 48GB) or `4` (for 5090).
-6. **Execution Timeout**: `300` seconds.
-
-#### **Option B: RunPod Standard Pod**
-1. Select an instance with an **RTX 5090**, **L40S**, or **RTX 6000 Ada**.
-2. Specify the image and expose HTTP port `8000`.
-
----
-
-### **Environment Variable Overrides**
-
-You can customize runtime behavior by adding these environment variables in your RunPod template:
-
-| Variable | Default | Description |
-| :--- | :---: | :--- |
-| `MODEL_PATH` | `/workspace/models/Ternary-Bonsai-2-27B-PQ2_0.gguf` | Absolute path to GGUF model file. |
-| `MMPROJ_PATH` | `/workspace/models/mmproj-bonsai-2-f16.gguf` | Absolute path to vision projector. |
-| `HF_REPO_ID` | `""` | Optional: HuggingFace repository to auto-download from. |
-| `HF_MODEL_FILE` | `""` | Optional: GGUF filename on HuggingFace. |
-| `HF_MMPROJ_FILE` | `""` | Optional: Projector filename on HuggingFace. |
-| `CTX_SIZE` | `auto` | Override context size (e.g. `261120`, `131072`, `65536`). |
-| `PARALLEL_SLOTS` | `auto` | Override concurrency slots (e.g. `4` or `6`). |
-| `KV_CACHE_TYPE_K` | `auto` | `q8_0` or `q4_0` (use `q4_0` for 256k context on RTX 5090). |
-| `KV_CACHE_TYPE_V` | `auto` | `q8_0` or `q4_0`. |
-| `FLASH_ATTENTION` | `true` | Must be `true` for maximum throughput and low VRAM usage. |
-| `MAX_TOKENS` | `8192` | Unlimited output tokens so client requests dictate generation limits. |
-
----
-
-### **OpenAI API Compatibility & Usage**
-
-The container natively exposes a full OpenAI-compatible API (`/v1/chat/completions` and `/v1/models`). You can connect with any OpenAI client, framework, or HTTP caller.
-
-#### **Python (OpenAI SDK)**
-```python
-from openai import OpenAI
-
-# RunPod Serverless or Pod endpoint
-client = OpenAI(
-    base_url="https://api.runpod.ai/v2/<YOUR_ENDPOINT_ID>/openai/v1",  # or http://<POD_IP>:8000/v1
-    api_key="your-runpod-api-key"
-)
-
-response = client.chat.completions.create(
-    model="Ternary-Bonsai-2-27B-PQ2_0.gguf",
-    messages=[
-        {"role": "user", "content": "Describe this image or video sequence."}
-    ],
-    temperature=0.0,
-    max_tokens=8192
-)
-
-print(response.choices[0].message.content)
-```
-
-#### **cURL**
-```bash
-curl -X POST "https://api.runpod.ai/v2/<YOUR_ENDPOINT_ID>/openai/v1/chat/completions" \
-  -H "Authorization: Bearer <YOUR_RUNPOD_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+```json
+{
+  "input": {
     "messages": [
-      {"role": "user", "content": "Hello Bonsai!"}
+      {"role": "user", "content": "Explain how a solar panel works."}
     ],
-    "temperature": 0.0,
     "max_tokens": 1024
-  }'
+  }
+}
 ```
+
+## Image request
+
+Use the OpenAI multimodal `content` array. A data URL avoids depending on the worker being able to fetch an external image URL; replace the placeholder with a base64-encoded JPEG or PNG.
+
+```json
+{
+  "input": {
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "Describe this image."},
+          {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,<BASE64_IMAGE>"}
+          }
+        ]
+      }
+    ],
+    "max_tokens": 1024
+  }
+}
+```
+
+The queue adapter passes the message content through to llama-server without rewriting image parts. Both projector files are downloaded, but only the selected one is loaded into the server and uses GPU memory.
+
+## Build locally
+
+```sh
+docker build -t bonsai2-runpod-serverless:multimodal .
+```
+
+The CUDA build can take several minutes and requires enough temporary build disk. The HF model files are downloaded only when a worker starts.
