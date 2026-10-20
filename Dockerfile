@@ -30,31 +30,35 @@ WORKDIR /app
 
 # Change this value when RunPod needs to be forced onto a fresh source/build
 # revision instead of reusing a previously cached repository or Docker layer.
-ARG BUILD_CACHE_BUSTER="v1.0.3"
+ARG BUILD_CACHE_BUSTER="v1.0.7"
 RUN echo "[Build] Cache buster: ${BUILD_CACHE_BUSTER}" > /app/.build-cache-buster
 
 # Download and install pre-compiled PrismML llama.cpp with CUDA 12.8 and Ternary Bonsai 2 support
 ARG LLAMA_PRISM_RELEASE="https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b10787-73bfe6c/llama-prism-b10787-73bfe6c-bin-linux-cuda-12.8-x64.tar.gz"
 
-RUN mkdir -p /opt/llama.cpp && \
+RUN mkdir -p /opt/llama.cpp /opt/llama-runtime && \
     echo "[Build] Downloading pre-compiled PrismML CUDA 12.8 binaries..." && \
     curl --fail --show-error --location --retry 3 --retry-all-errors --connect-timeout 20 \
         --output /tmp/llama-prism.tar.gz "$LLAMA_PRISM_RELEASE" && \
     tar -xzf /tmp/llama-prism.tar.gz -C /opt/llama.cpp && \
-    find /opt/llama.cpp -name "llama-server" -exec cp {} /usr/local/bin/llama-server \; && \
-    find /opt/llama.cpp -name "llama-cli" -exec cp {} /usr/local/bin/llama-cli \; && \
+    server_path=$(find /opt/llama.cpp -type f -name "llama-server" -print -quit) && \
+    cli_path=$(find /opt/llama.cpp -type f -name "llama-cli" -print -quit) && \
+    test -n "$server_path" && test -n "$cli_path" && \
+    bundle_dir=$(dirname "$server_path") && \
+    cp -a "$bundle_dir"/. /opt/llama-runtime/ && \
+    install -m 0755 /opt/llama-runtime/llama-server /usr/local/bin/llama-server && \
+    install -m 0755 /opt/llama-runtime/llama-cli /usr/local/bin/llama-cli && \
     test -f /usr/local/bin/llama-server && \
     test -f /usr/local/bin/llama-cli && \
     chmod +x /usr/local/bin/llama-server /usr/local/bin/llama-cli && \
     test -x /usr/local/bin/llama-server && \
     test -x /usr/local/bin/llama-cli && \
     rm -f /tmp/llama-prism.tar.gz && \
-    echo "/opt/llama.cpp" >> /etc/ld.so.conf.d/llama.conf && \
-    find /opt/llama.cpp -type d -name "lib*" -exec echo {} >> /etc/ld.so.conf.d/llama.conf \; && \
-    find /opt/llama.cpp -type d -name "bin*" -exec echo {} >> /etc/ld.so.conf.d/llama.conf \; && \
+    test -f /opt/llama-runtime/libllama-server-impl.so && \
+    echo "/opt/llama-runtime" > /etc/ld.so.conf.d/llama.conf && \
     ldconfig
 
-ENV LD_LIBRARY_PATH="/opt/llama.cpp:/opt/llama.cpp/bin:/opt/llama.cpp/lib:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/opt/llama-runtime:/opt/llama.cpp:/opt/llama.cpp/bin:/opt/llama.cpp/lib:${LD_LIBRARY_PATH}"
 
 # Install RunPod Serverless SDK and runtime utilities
 COPY requirements.txt /app/requirements.txt
