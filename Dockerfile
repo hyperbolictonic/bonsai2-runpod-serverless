@@ -12,6 +12,7 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
+    python-is-python3 \
     curl \
     ca-certificates \
     tar \
@@ -20,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 \
     procps \
     pciutils \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -80,4 +82,4 @@ ENV MODEL_PATH="/workspace/models/Ternary-Bonsai-2-27B-PQ2_0.gguf" \
 
 EXPOSE 8000
 
-CMD python -u /handler.py
+CMD ["python3", "-u", "/handler.py"]

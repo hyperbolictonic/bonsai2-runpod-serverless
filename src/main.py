@@ -1,6 +1,7 @@
 """
-RunPod Serverless Queue Handler for PrismML Bonsai 2 27B
-Proxies RunPod serverless job payloads into the local llama-server OpenAI endpoint.
+RunPod Serverless OpenAI-Compatible Queue Handler for PrismML Bonsai 2 27B
+Proxies both RunPod OpenAI Gateway routes (/openai/v1/models, /openai/v1/chat/completions)
+and standard serverless job payloads into the local llama-server OpenAI backend.
 """
 import os
 import sys
@@ -10,9 +11,10 @@ import requests
 import runpod
 
 LOCAL_PORT = os.environ.get("PORT", "8000")
-LOCAL_OPENAI_URL = f"http://127.0.0.1:{LOCAL_PORT}/v1/chat/completions"
-HEALTH_URL = f"http://127.0.0.1:{LOCAL_PORT}/health"
-MODELS_URL = f"http://127.0.0.1:{LOCAL_PORT}/v1/models"
+BASE_URL = f"http://127.0.0.1:{LOCAL_PORT}"
+HEALTH_URL = f"{BASE_URL}/health"
+MODELS_URL = f"{BASE_URL}/v1/models"
+CHAT_URL = f"{BASE_URL}/v1/chat/completions"
 
 def is_server_ready():
     try:
@@ -55,54 +57,86 @@ def ensure_llama_server():
         print(f"[RunPod Handler] Spawning direct llama-server: {' '.join(cmd)}")
         subprocess.Popen(cmd)
 
-    print(f"[RunPod Handler] Waiting for llama-server readiness on port {LOCAL_PORT}...")
-    for _ in range(180):
+    print(f"[RunPod Handler] Waiting for llama-server readiness on port {LOCAL_PORT} (up to 600s)...")
+    for i in range(1, 601):
         if is_server_ready():
-            print("[RunPod Handler] llama-server backend is healthy and ready!")
+            print(f"[RunPod Handler] llama-server backend is healthy and ready after {i}s!")
             return
+        if i % 15 == 0:
+            print(f"[RunPod Handler] Still waiting for llama-server readiness ({i}s elapsed)...")
         time.sleep(1)
 
     print("[RunPod Handler] Warning: llama-server health check timed out. Proceeding to start handler.")
 
 def handler(job):
     """
-    Standard synchronous RunPod Serverless queue handler function.
-    Receives incoming job event and forwards to local llama-server.
+    Standard RunPod Serverless queue handler function.
+    Bridges RunPod OpenAI Gateway calls and raw jobs into llama-server.
     """
     job_input = job.get("input", {}) if isinstance(job, dict) else {}
     if not job_input:
         return {"error": "Empty input payload provided."}
 
-    messages = job_input.get("messages", [])
-    if not messages and "prompt" in job_input:
-        messages = [{"role": "user", "content": job_input["prompt"]}]
+    # 1. Determine the target route (RunPod OpenAI Gateway passes "openai_route")
+    raw_route = str(job_input.get("openai_route", "")).strip()
+    if not raw_route:
+        raw_route = "/v1/chat/completions"
 
-    if not messages:
-        return {"error": "No 'messages' or 'prompt' found in input."}
+    if not raw_route.startswith("/"):
+        raw_route = "/" + raw_route
+    if not raw_route.startswith("/v1"):
+        raw_route = "/v1" + raw_route
 
-    payload = {
-        "messages": messages,
-        "temperature": job_input.get("temperature", 0.0),
-        "max_tokens": job_input.get("max_tokens", 8192),
-        "stream": False
-    }
+    target_url = f"{BASE_URL}{raw_route}"
 
-    for key in ("tools", "tool_choice", "response_format", "top_p", "presence_penalty", "frequency_penalty", "stop"):
-        if key in job_input:
-            payload[key] = job_input[key]
+    # 2. Extract payload (RunPod OpenAI Gateway passes "openai_input")
+    openai_input = job_input.get("openai_input")
+    if isinstance(openai_input, dict):
+        payload = openai_input
+    else:
+        payload = dict(job_input)
+        payload.pop("openai_route", None)
+        payload.pop("openai_input", None)
+
+    # 3. GET routes (like /v1/models)
+    if raw_route.endswith("/models") or (not payload and "chat" not in raw_route):
+        try:
+            resp = requests.get(target_url, timeout=30)
+            if resp.status_code == 200:
+                return resp.json()
+            # Fallback list if llama-server /v1/models is initializing
+            model_name = os.environ.get("HF_MODEL_FILE", "Ternary-Bonsai-2-27B-PQ2_0.gguf").replace(".gguf", "")
+            return {
+                "object": "list",
+                "data": [
+                    {
+                        "id": model_name,
+                        "object": "model",
+                        "owned_by": "prism-ml"
+                    }
+                ]
+            }
+        except Exception as exc:
+            return {"error": f"Failed to query {target_url}: {str(exc)}"}
+
+    # 4. POST routes (like /v1/chat/completions or /v1/completions)
+    if "messages" not in payload and "prompt" in payload:
+        payload["messages"] = [{"role": "user", "content": payload.pop("prompt")}]
+
+    if "model" not in payload:
+        payload["model"] = os.environ.get("HF_MODEL_FILE", "Ternary-Bonsai-2-27B-PQ2_0")
 
     timeout_sec = job_input.get("timeout", 600)
     try:
-        response = requests.post(LOCAL_OPENAI_URL, json=payload, timeout=timeout_sec)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return {
-                "error": f"llama-server returned HTTP {response.status_code}",
-                "details": response.text
-            }
+        resp = requests.post(target_url, json=payload, timeout=timeout_sec)
+        if resp.status_code == 200:
+            return resp.json()
+        return {
+            "error": f"llama-server returned HTTP {resp.status_code}",
+            "details": resp.text
+        }
     except Exception as exc:
-        return {"error": f"Failed to forward request to llama-server: {str(exc)}"}
+        return {"error": f"Failed to forward request to llama-server at {target_url}: {str(exc)}"}
 
 ensure_llama_server()
 print("[RunPod Handler] Initializing RunPod Serverless queue worker loop...")
