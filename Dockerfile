@@ -75,16 +75,14 @@ COPY --from=builder /build/build/bin/llama-server /usr/local/bin/llama-server
 COPY --from=builder /build/build/bin/llama-cli /usr/local/bin/llama-cli
 
 # Install RunPod Serverless SDK and lightweight proxy utilities
-RUN pip3 install --no-cache-dir \
-    runpod \
-    aiohttp \
-    requests \
-    huggingface_hub
+COPY requirements.txt /app/requirements.txt
+RUN pip3 install --no-cache-dir -r /app/requirements.txt
 
 # Copy launcher scripts
 COPY entrypoint.sh /app/entrypoint.sh
 COPY handler.py /app/handler.py
-RUN chmod +x /app/entrypoint.sh /app/handler.py
+COPY src /app/src
+RUN chmod +x /app/entrypoint.sh /app/handler.py /app/src/handler.py
 
 # Create model storage directory
 RUN mkdir -p /workspace/models
@@ -110,4 +108,6 @@ ENV MODEL_PATH="/workspace/models/Ternary-Bonsai-2-27B-PQ2_0.gguf" \
 
 EXPOSE 8000
 
+CMD ["python3", "-u", "/app/handler.py"]
 ENTRYPOINT ["/app/entrypoint.sh"]
+

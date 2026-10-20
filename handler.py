@@ -3,9 +3,9 @@ RunPod Serverless Queue Handler for Bonsai 2 27B
 Proxies RunPod serverless job payloads into the local llama-server OpenAI endpoint.
 """
 import os
-import runpod
 import aiohttp
 import asyncio
+import runpod
 
 LOCAL_OPENAI_URL = f"http://127.0.0.1:{os.environ.get('PORT', '8000')}/v1/chat/completions"
 
@@ -43,6 +43,4 @@ async def handler(job):
         except Exception as e:
             return {"error": f"Failed to forward request to llama-server: {str(e)}"}
 
-if __name__ == "__main__":
-    print("[RunPod Handler] Initializing RunPod Serverless worker...")
-    runpod.serverless.start({"handler": handler})
+runpod.serverless.start({"handler": handler})
