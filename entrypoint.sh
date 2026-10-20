@@ -114,7 +114,12 @@ if [ -f "$MMPROJ_PATH" ]; then
 fi
 
 if [ "$FLASH_ATTENTION" = "true" ]; then
-    LLAMA_CMD+=(-fa)
+    # PrismML's current llama-server expects an explicit flash-attention mode.
+    LLAMA_CMD+=(-fa on)
+elif [ "$FLASH_ATTENTION" = "false" ]; then
+    LLAMA_CMD+=(-fa off)
+else
+    LLAMA_CMD+=(-fa auto)
 fi
 
 echo "[Execution] Starting llama-server with command:"
