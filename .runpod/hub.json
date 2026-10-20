@@ -1,0 +1,12 @@
+﻿{
+  "title": "PrismML Bonsai 2 27B Serverless",
+  "description": "High-performance OpenAI-compatible serverless endpoint for PrismML Bonsai 2 27B powered by CUDA 12.8 llama.cpp with 256k context and Flash Attention.",
+  "type": "serverless",
+  "category": "language",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 20,
+    "gpuIds": "ADA_24,ADA_32,ADA_48,A100_80,A40,L40S,RTX_5090,RTX_6000_ADA",
+    "gpuCount": 1
+  }
+}

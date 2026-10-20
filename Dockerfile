@@ -78,11 +78,14 @@ COPY --from=builder /build/build/bin/llama-cli /usr/local/bin/llama-cli
 COPY requirements.txt /app/requirements.txt
 RUN pip3 install --no-cache-dir -r /app/requirements.txt
 
-# Copy launcher scripts
+# Copy launcher scripts and handlers
 COPY entrypoint.sh /app/entrypoint.sh
 COPY handler.py /app/handler.py
+COPY rp_handler.py /app/rp_handler.py
+COPY test_input.json /app/test_input.json
 COPY src /app/src
-RUN chmod +x /app/entrypoint.sh /app/handler.py /app/src/handler.py
+COPY .runpod /app/.runpod
+RUN chmod +x /app/entrypoint.sh /app/handler.py /app/rp_handler.py /app/src/handler.py /app/src/rp_handler.py
 
 # Create model storage directory
 RUN mkdir -p /workspace/models
@@ -110,4 +113,3 @@ EXPOSE 8000
 
 CMD ["python3", "-u", "/app/handler.py"]
 ENTRYPOINT ["/app/entrypoint.sh"]
-

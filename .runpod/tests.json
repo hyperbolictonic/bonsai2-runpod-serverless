@@ -1,0 +1,17 @@
+﻿{
+  "tests": [
+    {
+      "name": "basic_completion_test",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Ping"
+          }
+        ],
+        "max_tokens": 16
+      },
+      "timeout": 30000
+    }
+  ]
+}

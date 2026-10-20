@@ -93,24 +93,40 @@ if [ "$FLASH_ATTENTION" = "true" ]; then
     CMD="$CMD -fa"
 fi
 
-# 5. Launch in Pod or Serverless Mode
 echo "[Execution] Starting llama-server with command:"
 echo "$CMD"
 
-# If RunPod Serverless worker handler is explicitly requested
-if [ "$RUNPOD_MODE" = "serverless_handler" ]; then
-    echo "[RunPod] Starting llama-server in background and launching RunPod queue handler..."
-    eval "$CMD" &
-    LLAMA_PID=$!
-    
-    # Wait for llama-server readiness
-    echo "[RunPod] Waiting for llama-server port $PORT..."
-    until curl -s "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 || curl -s "http://127.0.0.1:$PORT/v1/models" > /dev/null 2>&1; do
-        sleep 1
-    done
-    echo "[RunPod] llama-server ready. Starting Python RunPod handler..."
-    exec python3 /app/handler.py
-else
-    # Direct HTTP mode (Standard for RunPod OpenAI Serverless endpoints and Pods)
+# 5. Check Execution Mode
+if [ "$RUNPOD_MODE" = "http" ] || [ "$RUNPOD_MODE" = "pod" ]; then
+    echo "[Mode] Starting direct HTTP llama-server for Pod / API Gateway..."
     exec eval "$CMD"
+fi
+
+# Standard Serverless Queue Mode (Default):
+echo "[RunPod] Starting llama-server in background..."
+eval "$CMD" &
+LLAMA_PID=$!
+
+echo "[RunPod] Waiting for llama-server readiness on port $PORT..."
+RETRIES=0
+MAX_RETRIES=120
+until curl -s "http://127.0.0.1:$PORT/health" > /dev/null 2>&1 || curl -s "http://127.0.0.1:$PORT/v1/models" > /dev/null 2>&1; do
+    sleep 1
+    RETRIES=$((RETRIES + 1))
+    if [ "$RETRIES" -ge "$MAX_RETRIES" ]; then
+        echo "[RunPod] Error: llama-server failed to initialize within $MAX_RETRIES seconds."
+        kill "$LLAMA_PID" 2>/dev/null || true
+        exit 1
+    fi
+done
+
+echo "[RunPod] llama-server is healthy and ready for requests!"
+
+# If custom command was passed as arguments, execute that; otherwise launch default handler
+if [ $# -gt 0 ]; then
+    echo "[RunPod] Executing container command: $@"
+    exec "$@"
+else
+    echo "[RunPod] Launching Python RunPod Serverless queue handler..."
+    exec python3 -u /app/handler.py
 fi
