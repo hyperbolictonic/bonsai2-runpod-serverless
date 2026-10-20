@@ -57,6 +57,20 @@ fi
 # 3. Model Acquisition (Local volume or HuggingFace auto-download)
 mkdir -p "$(dirname "$MODEL_PATH")"
 
+# Keep Hugging Face and temporary download data on the workspace volume. Xet
+# reconstruction can temporarily require another full copy of a large GGUF;
+# disable it by default so the download streams directly into local_dir.
+HF_WORKSPACE_CACHE="${HF_HOME:-/workspace/.cache/huggingface}"
+export HF_HOME="$HF_WORKSPACE_CACHE"
+export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_WORKSPACE_CACHE/hub}"
+export HF_XET_CACHE="${HF_XET_CACHE:-$HF_WORKSPACE_CACHE/xet}"
+export TMPDIR="${TMPDIR:-/workspace/tmp}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+mkdir -p "$HF_HOME" "$HF_HUB_CACHE" "$HF_XET_CACHE" "$TMPDIR"
+
+echo "[Storage] Workspace free space:"
+df -h "$(dirname "$MODEL_PATH")" || true
+
 if [ ! -f "$MODEL_PATH" ] && [ -n "$HF_REPO_ID" ] && [ -n "$HF_MODEL_FILE" ]; then
     echo "[Model] Model not found locally. Downloading $HF_MODEL_FILE from Hugging Face ($HF_REPO_ID)..."
     python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='$HF_REPO_ID', filename='$HF_MODEL_FILE', local_dir='$(dirname "$MODEL_PATH")')"
